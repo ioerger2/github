@@ -1,6 +1,6 @@
 #!/usr/bin/env Rscript
 
-#####################################
+####################################
 # process args, read inputs
 
 args = commandArgs(trailingOnly=TRUE)
