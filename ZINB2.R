@@ -103,6 +103,27 @@ print(summary(mod1))
   return(pval) 
 }
 
+# compute stats like mean and NZmean for each condition
+
+get_stats = function(melted) 
+{
+  tot = NULL 
+  nonzeros = NULL 
+  obs = NULL 
+  for (cond in groupnames) {
+    temp = melted[melted$cond==cond,]
+    tot = c(tot,sum(temp$cnt))
+    nonzeros = c(nonzeros,sum(temp$cnt!=0))
+    obs = c(obs,length(temp$cnt))
+  }
+  stats = data.frame(tot,nonzeros,obs)
+  rownames(stats) = groupnames
+  stats$mean = round(stats$tot/stats$obs,1)
+  stats$NZmean = round(stats$tot/max(1,stats$nonzeros),1)
+  stats$NZperc = round(stats$nonzeros/stats$obs,3)
+  return(stats)
+}
+
 # analyze a particular gene, given its Rv number
 
 gene_variability = function(rv) 
@@ -119,28 +140,12 @@ gene_variability = function(rv)
   flush.console()
   if (nTA<=1) { return(vals) }
 
-  # get melted counts
-
   melted = get_melted_counts(rv,groupnames)
-#print(melted)
+  #print(melted)
 
-  # compute stats like mean and NZmean for each condition
-
-  tot = NULL 
-  nonzeros = NULL 
-  obs = NULL 
-  for (cond in groupnames) {
-    temp = melted[melted$cond==cond,]
-    tot = c(tot,sum(temp$cnt))
-    nonzeros = c(nonzeros,sum(temp$cnt!=0))
-    obs = c(obs,length(temp$cnt))
-  }
-  stats = data.frame(tot,nonzeros,obs)
-  rownames(stats) = groupnames
-  stats$mean = round(stats$tot/stats$obs,1)
-  stats$NZmean = round(stats$tot/max(1,stats$nonzeros),1)
-  stats$NZperc = round(stats$nonzeros/stats$obs,3)
-print("stats"); print(stats)
+  stats = get_stats(melted)
+  cat("stats:\n")
+  print(stats)
 
   means = apply(t(stats$mean),2,mean)
   names(means) = paste0("mean_",groupnames)
@@ -159,7 +164,7 @@ print("stats"); print(stats)
   ANOVA_pval = summary(anova)[[1]][["Pr(>F)"]][1]
   print(paste("ANOVA_pval:",ANOVA_pval))
   vals = c(vals,ANOVA_pval=ANOVA_pval)
-#print(summary(anova))
+  #print(summary(anova))
 
   # add global NZmean and Zperc for each dataset to melted (for offsets in ZINB model, i.e. saturation adjustment)
 
