@@ -55,7 +55,11 @@ get_melted_counts = function(rv,groupnames)
 {
   start = genes[genes$V9==rv,2]
   end = genes[genes$V9==rv,3]
-  sites = data[data$coord>=start & data$coord<end,] 
+  strand = genes[genes$V9==rv,4]
+  if (strand=="+") { end = end-3 } # ignore TA in stop codon, like resampling
+  else { start = start+3 } 
+  sites = data[data$coord>=start & data$coord<=end,] 
+  if (length(sites$coord)==0) { return(NULL) }
   rows = c()
   for (group in groupnames) {
     for (j in 1:length(metadata$Filename)) {
@@ -97,7 +101,7 @@ print(summary(mod1))
   if (is.null(mod1) | is.null(mod0)) { return(1) }
   df1 = attr(logLik(mod1),"df"); df0 = attr(logLik(mod0),"df") # should be (2*ngroups+1)-3
   pval = pchisq(2*(logLik(mod1)-logLik(mod0)),df=df1-df0,lower.tail=F) # alternatively, could use lrtest()
-  # gives same answer, but I would need to extract the Pvalue...
+  # this gives same answer, but I would need to extract the Pvalue...
   #require(lmtest)
   #print(lrtest(mod1,mod0))
   return(pval) 
@@ -130,18 +134,16 @@ gene_variability = function(rv)
 {
   gene = genes[genes$V9==rv,8]
   if (! rv %in% genes$V9) { cat("gene not found\n"); quit("no") }
-  start = genes[genes$V9==rv,2]
-  end = genes[genes$V9==rv,3]
-  sites = data[data$coord>=start & data$coord<end,1] 
-  nTA = length(sites)
+
+  melted = get_melted_counts(rv,groupnames)
+  nTA = length(table(melted$coord))
+
   vals = c(Rv=rv,gene=gene,nTA=nTA)
   cat("\n-----------------------------------------\n")
   print(vals)
   flush.console()
   if (nTA<=1) { return(vals) }
-
-  melted = get_melted_counts(rv,groupnames)
-  #print(melted)
+  if (sum(melted$cnt)==0) { return(vals) } # skip gene if completely empty in all conds
 
   stats = get_stats(melted)
   cat("stats:\n")
@@ -150,7 +152,6 @@ gene_variability = function(rv)
   means = apply(t(stats$mean),2,mean)
   names(means) = paste0("mean_",groupnames)
   vals = c(vals,means)
-  if (sum(melted$cnt)==0) { return(vals) } # skip gene if completely empty in all conds
 
   NZmeans = t(stats$NZmean)
   NZpercs = t(stats$NZperc)
@@ -204,13 +205,15 @@ for (rv in genes[,9]) {
   x = gene_variability(rv)
   if (length(x)<4+3*ngroups) { x = c(x,rep(0,3+3*ngroups-length(x)),1,1) }
   res = rbind(res,x)
+  # what a pain: rbind only uses col names from first gene, which might have had all 0's and thus no pval
+  if ("ZINB_pval" %in% names(x)) { colnames(res) = names(x) } 
 }
 
 res = as.data.frame(res,stringsAsFactors=F)
 ANOVA_pvals = res$ANOVA_pval
-ANOVA_qvals = p.adjust(ANOVA_pvals)
+ANOVA_qvals = p.adjust(ANOVA_pvals,method="BH")
 ZINB_pvals = res$ZINB_pval
-ZINB_qvals = p.adjust(ZINB_pvals)
+ZINB_qvals = p.adjust(ZINB_pvals,method="BH")
 res2 = res[,1:(length(colnames(res))-2)]
 res2$ANOVA_pval = ANOVA_pvals
 res2$ANOVA_qval = ANOVA_qvals
