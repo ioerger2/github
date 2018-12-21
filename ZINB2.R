@@ -21,7 +21,7 @@ if ("-no_sat_adjust" %in% args) { print("found") }
 
 genes = read.table(prot_table,sep='\t',quote="",stringsAsFactors=F)
 
-data = read.table(wigs,sep='\t',head=T)
+data = read.table(wigs,sep='\t',head=F)
 file = file(wigs,"r")
 lines = readLines(file)
 close(file)
@@ -89,16 +89,29 @@ ZINB_signif = function(melted,sat_adjust)
   require(pscl)
   melted$cnt = as.integer(melted$cnt) # note: ZINB requires that counts are integers
   melted$dataset = as.factor(melted$dataset)
+  sums = aggregate(melted$cnt,by=list(melted$cond),FUN=sum)
+  # to avoid model failing due to singular condition, add fake counts of 1 to all conds if any cond is all 0s
+  if (0 %in% sums[,2]) {
+    print("adding pseudocounts")
+    for (i in 1:length(sums[,1])) {
+      subset = melted[melted$cond==sums[i,1],]
+      newvec = subset[1,]
+      newvec$coord = -1
+      newvec$cnt = 1
+      melted = rbind(melted,newvec) }
+  }
+  sums = aggregate(melted$cnt,by=list(melted$cond),FUN=sum)
+  print(sums)
   mod1 = tryCatch(
      { if (sat_adjust) { zeroinfl(cnt~0+cond+offset(log(NZmean))|0+cond+offset(logitZperc),data=melted,dist="negbin") }
                   else { zeroinfl(cnt~0+cond,data=melted,dist="negbin") } },
      error=function(err) { return(NULL) } )
-print(summary(mod1))
   mod0 = tryCatch( # null model, independent of conditions
      { if (sat_adjust) { zeroinfl(cnt~1+offset(log(NZmean))|1+offset(logitZperc),data=melted,dist="negbin") }
                   else { zeroinfl(cnt~1,data=melted,dist="negbin") } },
      error=function(err) { return(NULL) } )
   if (is.null(mod1) | is.null(mod0)) { return(1) }
+  if (sum(is.na(coef(summary(mod1))$count[,4]))>0) { return(1) } # rare failure mode - has coefs, but pvals are NA
   df1 = attr(logLik(mod1),"df"); df0 = attr(logLik(mod0),"df") # should be (2*ngroups+1)-3
   pval = pchisq(2*(logLik(mod1)-logLik(mod0)),df=df1-df0,lower.tail=F) # alternatively, could use lrtest()
   # this gives same answer, but I would need to extract the Pvalue...
