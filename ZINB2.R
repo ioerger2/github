@@ -87,6 +87,7 @@ get_params = function(mod,counts)
 ZINB_signif = function(melted,sat_adjust) 
 {
   require(pscl)
+  require(MASS)
   melted$cnt = as.integer(melted$cnt) # note: ZINB requires that counts are integers
   melted$dataset = as.factor(melted$dataset)
   sums = aggregate(melted$cnt,by=list(melted$cond),FUN=sum)
@@ -100,19 +101,30 @@ ZINB_signif = function(melted,sat_adjust)
       newvec$cnt = 1
       melted = rbind(melted,newvec) }
   }
-  sums = aggregate(melted$cnt,by=list(melted$cond),FUN=sum)
-  print(sums)
-  mod1 = tryCatch(
+
+  # special case: if no zeros (fully-saturated, all sites, all conditions), just use regular (non-zero-inflated) model
+  if (min(melted$cnt)>0) {
+     mod1 = tryCatch( { glm.nb(cnt~0+cond,data=melted) },error=function(err) { return(NULL) } )
+     mod0 = tryCatch( { glm.nb(cnt~1,data=melted) },error=function(err) { return(NULL) } )
+     if (is.null(mod1) | is.null(mod0)) { return(1) }
+     df1 = mod1$df
+     df0 = mod0$df
+  }
+  else { # zero-inflated model
+    mod1 = tryCatch(
      { if (sat_adjust) { zeroinfl(cnt~0+cond+offset(log(NZmean))|0+cond+offset(logitZperc),data=melted,dist="negbin") }
                   else { zeroinfl(cnt~0+cond,data=melted,dist="negbin") } },
      error=function(err) { return(NULL) } )
-  mod0 = tryCatch( # null model, independent of conditions
+    mod0 = tryCatch( # null model, independent of conditions
      { if (sat_adjust) { zeroinfl(cnt~1+offset(log(NZmean))|1+offset(logitZperc),data=melted,dist="negbin") }
                   else { zeroinfl(cnt~1,data=melted,dist="negbin") } },
-     error=function(err) { return(NULL) } )
+     error=function(err) { return(NULL) } ) 
+    df1 = attr(logLik(mod1),"df")
+    df0 = attr(logLik(mod0),"df") # should be (2*ngroups+1)-3
+    if (!is.na(mod1) & sum(is.na(coef(summary(mod1))$count[,4]))>0) { return(1) } # rare failure mode - has coefs, but pvals are NA
+  }
+
   if (is.null(mod1) | is.null(mod0)) { return(1) }
-  if (sum(is.na(coef(summary(mod1))$count[,4]))>0) { return(1) } # rare failure mode - has coefs, but pvals are NA
-  df1 = attr(logLik(mod1),"df"); df0 = attr(logLik(mod0),"df") # should be (2*ngroups+1)-3
   pval = pchisq(2*(logLik(mod1)-logLik(mod0)),df=df1-df0,lower.tail=F) # alternatively, could use lrtest()
   # this gives same answer, but I would need to extract the Pvalue...
   #require(lmtest)
