@@ -17,7 +17,7 @@ wigs = args[2]
 metadata = args[3]
 outf = args[4]
 
-if ("-no_sat_adjust" %in% args) { print("found") }
+if ("-no_sat_adjust" %in% args) { print("saturation adjustment turned off") }
 
 genes = read.table(prot_table,sep='\t',quote="",stringsAsFactors=F)
 
@@ -107,8 +107,9 @@ ZINB_signif = function(melted,sat_adjust)
      mod1 = tryCatch( { glm.nb(cnt~0+cond,data=melted) },error=function(err) { return(NULL) } )
      mod0 = tryCatch( { glm.nb(cnt~1,data=melted) },error=function(err) { return(NULL) } )
      if (is.null(mod1) | is.null(mod0)) { return(1) }
-     df1 = mod1$df
-     df0 = mod0$df
+     df = length(mod1$coeff)-length(mod0$coeff)
+     pval = pchisq(2*(logLik(mod1)-logLik(mod0)),df=df,lower.tail=F) # alternatively, could use lrtest()
+     return(pval)    
   }
   else { # zero-inflated model
     mod1 = tryCatch(
@@ -119,17 +120,17 @@ ZINB_signif = function(melted,sat_adjust)
      { if (sat_adjust) { zeroinfl(cnt~1+offset(log(NZmean))|1+offset(logitZperc),data=melted,dist="negbin") }
                   else { zeroinfl(cnt~1,data=melted,dist="negbin") } },
      error=function(err) { return(NULL) } ) 
+    if (is.null(mod1) | is.null(mod0)) { return(1) }
     df1 = attr(logLik(mod1),"df")
-    df0 = attr(logLik(mod0),"df") # should be (2*ngroups+1)-3
+    df0 = attr(logLik(mod0),"df") # should be (2*ngroups+1)-3 = 2*(ngroups-1)
     if (!is.na(mod1) & sum(is.na(coef(summary(mod1))$count[,4]))>0) { return(1) } # rare failure mode - has coefs, but pvals are NA
-  }
 
-  if (is.null(mod1) | is.null(mod0)) { return(1) }
-  pval = pchisq(2*(logLik(mod1)-logLik(mod0)),df=df1-df0,lower.tail=F) # alternatively, could use lrtest()
-  # this gives same answer, but I would need to extract the Pvalue...
-  #require(lmtest)
-  #print(lrtest(mod1,mod0))
-  return(pval) 
+    pval = pchisq(2*(logLik(mod1)-logLik(mod0)),df=df1-df0,lower.tail=F) # alternatively, could use lrtest()
+    # this gives same answer, but I would need to extract the Pvalue...
+    #require(lmtest)
+    #print(lrtest(mod1,mod0))
+    return(pval) 
+  }
 }
 
 # compute stats like mean and NZmean for each condition
