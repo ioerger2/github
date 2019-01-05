@@ -9,13 +9,17 @@ require(reshape)
 require(pscl)
 
 if (length(args)<5) { 
-  print("usage: Rscript ZINB.R <prot_table> <combined_wigs_TTR> <samples-metadata> <output_fname> <comma_separated_list_of_conditions> [-no_sat_adjust] [-gene ORF_id]")
+  print("usage: Rscript ZINB.R <prot_table> <combined_wigs_TTR> <samples-metadata> <output_fname> <comma_separated_list_of_conditions> [-no_sat_adjust] [-gene ORF_id] [-winsorize]")
   quit("no") }
 
 prot_table = args[1]
 wigs = args[2]
 metadata = args[3]
 outf = args[4]
+
+WINSORIZE = F
+if ("-winsorize" %in% args) { WINSORIZE = T }
+cat(sprintf("WINSORIZE=%s\n",WINSORIZE))
 
 if ("-no_sat_adjust" %in% args) { print("saturation adjustment turned off") }
 
@@ -107,8 +111,10 @@ ZINB_signif = function(melted,sat_adjust)
      mod1 = tryCatch( { glm.nb(cnt~0+cond,data=melted) },error=function(err) { return(NULL) } )
      mod0 = tryCatch( { glm.nb(cnt~1,data=melted) },error=function(err) { return(NULL) } )
      if (is.null(mod1) | is.null(mod0)) { return(1) }
-     df = length(mod1$coeff)-length(mod0$coeff)
-     pval = pchisq(2*(logLik(mod1)-logLik(mod0)),df=df,lower.tail=F) # alternatively, could use lrtest()
+     df1 = attr(logLik(mod1),"df")
+     df0 = attr(logLik(mod0),"df") # should be (2*ngroups+1)-3 = 2*(ngroups-1)
+     print(sprintf("df1=%s df0=%s df1-df0=%s (zeroinfl)",df1,df0,df1-df0))
+     pval = pchisq(2*(logLik(mod1)-logLik(mod0)),df=df1-df0,lower.tail=F) # alternatively, could use lrtest()
      return(pval)    
   }
   else { # zero-inflated model
@@ -120,10 +126,13 @@ ZINB_signif = function(melted,sat_adjust)
      { if (sat_adjust) { zeroinfl(cnt~1+offset(log(NZmean))|1+offset(logitZperc),data=melted,dist="negbin") }
                   else { zeroinfl(cnt~1,data=melted,dist="negbin") } },
      error=function(err) { return(NULL) } ) 
+
     if (is.null(mod1) | is.null(mod0)) { return(1) }
     df1 = attr(logLik(mod1),"df")
     df0 = attr(logLik(mod0),"df") # should be (2*ngroups+1)-3 = 2*(ngroups-1)
-    if (!is.na(mod1) & sum(is.na(coef(summary(mod1))$count[,4]))>0) { return(1) } # rare failure mode - has coefs, but pvals are NA
+    print(sprintf("df1=%s df0=%s df1-df0=%s (zeroinfl)",df1,df0,df1-df0))
+    if ((!is.null(mod1)) & sum(is.na(coef(summary(mod1))$count[,4]))>0) { 
+      return(1) } # rare failure mode - model has coefs, but pvals are NA
 
     pval = pchisq(2*(logLik(mod1)-logLik(mod0)),df=df1-df0,lower.tail=F) # alternatively, could use lrtest()
     # this gives same answer, but I would need to extract the Pvalue...
@@ -154,6 +163,14 @@ get_stats = function(melted)
   return(stats)
 }
 
+winsorize = function(melted) 
+{
+  temp = sort(melted$cnt,decreasing=T)
+  cat(sprintf("winsorization: replacing max count, %s, with 2nd-highest, %s\n",temp[1],temp[2]))
+  melted$cnt[melted$cnt==temp[1]] = temp[2]
+  return(melted)
+}
+
 # analyze a particular gene, given its Rv number
 
 gene_variability = function(rv) 
@@ -169,6 +186,7 @@ gene_variability = function(rv)
   print(vals)
   flush.console()
   if (nTA<=1) { return(vals) }
+  if (WINSORIZE==T) { melted = winsorize(melted) }
   if (sum(melted$cnt)==0) { return(vals) } # skip gene if completely empty in all conds
 
   stats = get_stats(melted)
