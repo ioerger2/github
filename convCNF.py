@@ -207,13 +207,13 @@ def validate_PropLog(expr):
   oper = expr.list[0]
   if oper.atom==None: return False
   oper = oper.atom
-  if oper not in ["<->","->","and","or","not"]: return False # add xor? implies? caps?
+  if oper not in ["<->","->","implies","and","or","not","xor"]: return False 
   args = expr.list[1:]
   for arg in args:
     if validate_PropLog(arg)==False: return False
-  if (oper=="<->" or oper=="->") and len(args)!=2: return False
+  if (oper=="<->" or oper=="->" or oper=="xor") and len(args)!=2: return False
   if oper=="not" and len(args)!=1: return False
-  # and, or can have any number of args (0 or more)
+  # 'and' and 'or' can have any number of args (0 or more)
   return True
 
 ##########################
