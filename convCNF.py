@@ -125,11 +125,11 @@ def eliminate_xors(expr):
   if oper.atom=="xor":
     if len(expr.list)!=3: raise Exception("xor can only have 2 arguments")
     a,b = expr.list[1],expr.list[2]
-    newlist1 = ['or',a,negate(b)]
-    newlist2 = ['or',b,negate(a)]
+    newlist1 = ['and',a,negate(b)]
+    newlist2 = ['and',b,negate(a)]
     newexpr1 = make_Sexpr_from_list(newlist1) 
     newexpr2 = make_Sexpr_from_list(newlist2) 
-    newlist = ["and",newexpr1,newexpr2]
+    newlist = ["or",newexpr1,newexpr2]
     newexpr = make_Sexpr_from_list(newlist) 
     return eliminate_xors(newexpr)
   else:
